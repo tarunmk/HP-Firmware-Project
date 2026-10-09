@@ -4,8 +4,14 @@ static void heartbeatTask(void *pvParameters)
 {
     (void)pvParameters;
 
+    pinMode(LED_BUILTIN, OUTPUT);
+
     for (;;) {
-        vTaskDelay(pdMS_TO_TICKS(1000));
+        digitalWrite(LED_BUILTIN, HIGH);
+        vTaskDelay(pdMS_TO_TICKS(500));
+
+        digitalWrite(LED_BUILTIN, LOW);
+        vTaskDelay(pdMS_TO_TICKS(500));
     }
 }
 
@@ -25,5 +31,4 @@ void setup()
 
 void loop()
 {
-    // FreeRTOS manages the task after the scheduler starts.
 }
