@@ -1,3 +1,24 @@
-
-# Local VS Code configuration
+# Local editor configuration
 .vscode/
+
+# Python virtual environments
+.venv/
+venv/
+env/
+
+# Python cache and compiled files
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# Local telemetry output
+host/telemetry_log.csv
+
+# Local backup files
+*.bak
+*.orig
+
+# macOS metadata
+.DS_Store
+
+*.r5-backup

@@ -1,134 +1,175 @@
-# Command Protocol — Version 1
+Command Protocol
 
-## 1. Purpose
+1. Purpose
 
-This document defines the commands exchanged between the Python host and the FreeRTOS-based MCU.
+This document describes the command interface between the Python host dashboard and the Arduino Mega firmware.
 
-All commands and responses use the common binary frame format defined in `protocol.md`.
+The current implementation uses newline-delimited ASCII commands and text responses. Telemetry is transmitted separately as binary frames, with frame validation and CRC-16 checking performed by the Python host.
 
-## 2. Frame and Transaction Rules
+Note: Transaction IDs and a binary command/response protocol are not currently implemented. These remain potential future enhancements.
 
-- Each command includes a unique 16-bit transaction ID in its payload.
-- Transaction IDs are allocated by the host and increment for each new command, wrapping at 65535 to 0.
-- A response echoes the transaction ID of the command it acknowledges.
-- Transaction IDs are independent of the outer frame sequence number.
-- The host permits only one outstanding command at a time in Version 1.
-- The device processes a command only after validating its complete frame and CRC.
-- Responses use message type `0x80`.
-- The outer frame sequence number increments independently for every transmitted frame.
+2. Communication
 
-### Command Payload Layout
+- Baud rate: 115200.
+- Command encoding: ASCII, terminated by a newline (`\n`).
+- Response format: Newline-delimited text.
+- Telemetry format: Binary frames defined in [`protocol.md`](protocol.md).
+- Transport architecture: The firmware communicates over USB serial. The Python serial bridge owns the physical serial connection and relays bytes over TCP to the dashboard at `127.0.0.1:8765`.
 
-Every command payload starts with a 2-byte unsigned transaction ID in little-endian order, followed by command-specific data.
+Command responses and binary telemetry share the same physical serial connection. The host parser distinguishes text responses from binary frames.
 
-## 3. Command Definitions
+3. Implemented Commands
 
-### Set Sample Rate — `0x10`
+3.1 Set Sampling Rate — `RATE,<milliseconds>`
 
-- Payload length: 6 bytes.
-- Bytes 0–1: transaction ID (`uint16`, little-endian).
-- Bytes 2–5: requested sample rate (`uint32`, little-endian).
-- Valid rate: 1–100 samples per second.
-- Success: atomically apply the new rate and acknowledge success.
-- Failure: reject the request without changing the active rate.
+Example:
 
-### Start Streaming — `0x11`
+RATE,1000
 
-- Payload length: 2 bytes.
-- Bytes 0–1: transaction ID.
-- Action: enable telemetry transmission.
-- Repeated requests are idempotent: the device remains in the streaming state without creating duplicate tasks.
+Configures the normal-mode sampling interval.
 
-### Stop Streaming — `0x12`
+- Supported range: 100–5000 milliseconds.
+- The configured normal sampling interval is retained when switching between NORMAL and LOW power modes during the same firmware runtime.
+- LOW mode uses an effective sampling interval of 5000 milliseconds.
 
-- Payload length: 2 bytes.
-- Bytes 0–1: transaction ID.
-- Action: stop telemetry transmission while keeping command processing active.
-- Repeated requests are idempotent.
+The command changes the runtime configuration. Persistence across a firmware reset or power cycle is not guaranteed.
 
-### Get Status — `0x13`
+3.2 Start Streaming — `STREAM,1`
 
-- Payload length: 2 bytes.
-- Bytes 0–1: transaction ID.
-- Action: request current device status.
+Enables telemetry transmission.
 
-## 4. Command Response — `0x80`
+3.3 Stop Streaming — `STREAM,0`
 
-### Common Response Payload
+Disables telemetry transmission while keeping command processing active.
 
-| Field | Size | Description |
-|---|---:|---|
-| Transaction ID | 2 bytes | Echoes the request transaction ID |
-| Result code | 1 byte | Outcome of the command |
-| Original command type | 1 byte | Identifies the acknowledged command |
-| Response data | Variable | Command-specific information |
+3.4 Get Device Status — `STATUS`
 
-Transaction ID and multi-byte response fields use little-endian encoding.
+Requests the current device status.
 
-### Result Codes
+Example response:
 
-- `0x00`: success.
-- `0x01`: unsupported command.
-- `0x02`: invalid payload length.
-- `0x03`: invalid parameter.
-- `0x04`: internal error.
+STATUS,1000,1,LOW
 
-### Status Response Data
+The response fields are:
 
-For a successful Get Status command, the response data contains:
+| Field               | Meaning |
 
-| Field | Size | Description |
-|---|---:|---|
-| Streaming state | 1 byte | `0x00` stopped; `0x01` streaming |
-| Sample rate | 4 bytes | Active rate in Hz, unsigned little-endian |
-| Firmware major version | 1 byte | Major version |
-| Firmware minor version | 1 byte | Minor version |
-| Firmware patch version | 1 byte | Patch version |
+| `STATUS`            | Response identifier |
+| `1000`              | Configured normal sampling interval in milliseconds |
+| `1`                 | Streaming state: `0` stopped, `1` enabled |
+| `LOW`               | Power mode: `LOW` or `NORMAL` |
 
-The complete successful status response payload is 12 bytes: 4 bytes of common response fields and 8 bytes of status data.
+The values above are an illustrative example; actual values depend on the device's current configuration.
 
-For other successful commands, response data is empty unless explicitly defined later.
+3.5 Enable Low-Power Mode — `POWER_MODE,LOW`
 
-For unsuccessful commands, response data is empty in Version 1.
+Enables the software power-aware mode.
 
-## 5. Validation and State Safety
+Current behavior:
 
-The device must validate, in order:
+- Sets the effective sampling interval to 5000 milliseconds.
+- Reduces sampling and telemetry transmission frequency.
+- Suppresses normal LED toggling.
+- Keeps command processing active.
 
-1. Sync marker and complete frame availability.
-2. Payload length and maximum permitted frame size.
-3. CRC integrity.
-4. Supported message type.
-5. Exact payload length for that command.
-6. Transaction ID and command parameters.
+Expected acknowledgement:
 
-The device must not modify configuration or streaming state until validation succeeds.
+OK,POWER_MODE,LOW
 
-Malformed frames that cannot be reliably associated with a complete command are discarded without changing state. If a complete, validly framed command has a recognized transaction ID but invalid parameters, return an error response.
+This mode changes firmware behavior but does not implement a hardware sleep state. No measured electrical power reduction is claimed.
 
-## 6. Reliability and Recovery
+3.6 Enable Normal Mode — `POWER_MODE,NORMAL`
 
-- The device must continue operating when the host disconnects.
-- Reconnection must not require a device restart.
-- The host must handle partial reads, combined frames, corrupted bytes, and truncated frames.
-- Invalid frames must not crash the parser or cause out-of-bounds memory access.
-- The host must match responses using transaction IDs, not arrival order alone.
-- The host must use a finite response timeout and report timeout failures.
-- The host must not assume a timed-out command failed to execute; it may have executed before the response was lost.
-- Start and Stop commands are idempotent to make safe retries easier.
+Restores normal-mode sampling behavior using the configured normal sampling interval.
 
-## 7. RTOS Concurrency
+Expected acknowledgement:
 
-- One control task owns mutable configuration and streaming state.
-- The serial receive path validates frames before submitting commands to the control task.
-- Inter-task communication uses bounded queues or notifications where appropriate.
-- Queue saturation is handled explicitly and counted; it must not silently corrupt state.
-- No command may create duplicate RTOS tasks.
-- Sampling timing changes must take effect predictably without busy-waiting.
+OK,POWER_MODE,NORMAL
 
-## 8. Resource Constraints
+3.7 Get Power Status — `POWER_STATUS`
 
-- Use fixed-size buffers and bounded payload lengths.
-- Avoid dynamic memory allocation in the steady-state command and telemetry paths.
-- Keep command processing independent of telemetry streaming.
-- Use diagnostic counters for malformed frames, CRC failures, dropped telemetry, and command timeouts where applicable.
+Requests the current power mode.
+
+Example response:
+
+POWER_STATUS,LOW
+
+3.8 Host Help — `HELP`
+
+Displays the supported command list in the Python dashboard. This is a host-side command and does not require a firmware response.
+
+3.9 Exit Dashboard — `QUIT`
+
+Stops the Python dashboard. It does not intentionally reset or stop the firmware.
+
+If the serial bridge remains running and the USB connection stays active, the dashboard can reconnect without reopening the physical serial port.
+
+4. Power Management
+
+The firmware provides NORMAL and LOW software operating modes.
+
+In LOW mode, the effective sampling interval is 5000 milliseconds. In NORMAL mode, the effective interval follows the configured normal sampling rate.
+
+The dashboard displays:
+
+- Current confirmed power mode.
+- Effective sampling interval.
+- Last confirmed mode transition.
+
+The displayed power mode is updated from device responses rather than being based solely on the command entered by the user.
+
+The implementation does not currently provide a hardware sleep state or measured power-saving percentage. A reduction in sampling frequency must not be interpreted as an equivalent reduction in electrical power.
+
+5. Error Handling and Reliability
+
+- The host parser handles partial reads, combined reads, malformed input, and corrupted telemetry frames.
+- Binary telemetry frames are validated using frame-structure checks and CRC-16 validation.
+- Invalid telemetry frames are reported without accepting their data as valid telemetry.
+- Text responses and binary telemetry share the same serial connection and are parsed without corrupting frame boundaries.
+- The dashboard logs device responses, but the current ASCII command protocol does not implement transaction IDs or full request-response correlation.
+- The serial bridge keeps the physical serial port open while the dashboard disconnects and reconnects.
+- Dashboard reconnection has been exercised successfully while the bridge and USB connection remain active.
+- Automatic recovery after physical USB disconnection, bridge failure, or board reset is not implemented as a verified capability. These scenarios require separate testing and recovery logic.
+
+6. RTOS and Resource Considerations
+
+The firmware uses FreeRTOS for task-based operation.
+
+Potential areas for future evaluation include:
+
+- Bounded queues and explicit handling of queue saturation.
+- Predictable sampling-period updates.
+- Avoiding unnecessary dynamic allocation in steady-state execution paths.
+- Keeping command processing independent of telemetry transmission.
+- Diagnostic counters for malformed input and dropped telemetry.
+
+Concurrency guarantees and resource limits should be claimed only when verified against the firmware implementation and test results.
+
+7. Future Enhancements
+
+7.1 Framed Command Protocol
+
+Potential enhancements include:
+
+- Message type identifiers.
+- Transaction IDs.
+- CRC validation for commands and responses.
+- Explicit success and error result codes.
+- Response timeouts and transaction matching.
+- Defined retry and idempotency behavior.
+
+7.2 Hardware Sleep and Power Measurement
+
+Potential enhancements include:
+
+- Implementing an appropriate microcontroller sleep state.
+- Designing a wake-up strategy that preserves required sampling and communication behavior.
+- Evaluating peripheral power management.
+- Measuring current consumption in NORMAL and LOW modes under equivalent conditions.
+- Reporting measured average power and energy usage rather than estimating savings from sampling frequency alone.
+
+7.3 Physical USB Reconnection Recovery
+
+Automatic recovery following physical USB disconnection has not been verified as an implemented capability. Future work may include detecting serial-device removal, retrying the connection when the device returns, and handling firmware resets and lost runtime configuration.
+
+These items are future enhancements, not current capabilities.
