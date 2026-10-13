@@ -9,25 +9,27 @@ The current implementation uses binary frames for telemetry and newline-delimite
 
 Each telemetry frame is exactly 20 bytes.
 
-| Field             | Size       | Description |
-
-| Sync marker       | 2 bytes    | `0xAA 0x55` |
-| Message type      | 1 byte     | `0x01` for telemetry |
-| Payload length    | 1 byte     | `12` bytes |
-| Sequence number   | 2 bytes    | Unsigned 16-bit integer, little-endian |
-| Payload           | 12 bytes   | Timestamp followed by temperature |
-| CRC-16            | 2 bytes    | CRC-16/CCITT-FALSE, little-endian |
+| Field | Size | Description |
+|---|---:|---|
+| Sync marker | 2 bytes | `0xAA 0x55` |
+| Message type | 1 byte | `0x01` for telemetry |
+| Payload length | 1 byte | `12` bytes |
+| Sequence number | 2 bytes | Unsigned 16-bit integer, little-endian |
+| Payload | 12 bytes | Timestamp followed by temperature |
+| CRC-16 | 2 bytes | CRC-16/CCITT-FALSE, little-endian |
 
 3. Telemetry Payload
 
-| Field             | Size         | Format |
+The 12-byte payload contains the timestamp and temperature measurement.
 
-| Timestamp         | 8 bytes      | Unsigned 64-bit milliseconds since startup |
-| Temperature       | 4 bytes      | IEEE 754 binary32, degrees Celsius |
+| Field | Size | Format |
+|---|---:|---|
+| Timestamp | 8 bytes | Unsigned 64-bit milliseconds since startup |
+| Temperature | 4 bytes | IEEE 754 binary32, degrees Celsius |
 
-Telemetry payload length: 12 bytes.
+Telemetry payload length: 12 bytes
 
-Expected telemetry frame size: 20 bytes.
+Expected telemetry frame size: 20 bytes
 
 4. Encoding Rules
 

@@ -51,12 +51,12 @@ STATUS,1000,1,LOW
 
 The response fields are:
 
-| Field               | Meaning |
-
-| `STATUS`            | Response identifier |
-| `1000`              | Configured normal sampling interval in milliseconds |
-| `1`                 | Streaming state: `0` stopped, `1` enabled |
-| `LOW`               | Power mode: `LOW` or `NORMAL` |
+| Field | Meaning |
+|---|---|
+| `STATUS` | Response identifier |
+| `1000` | Configured normal sampling interval in milliseconds |
+| `1` | Streaming state: `0` stopped, `1` enabled |
+| `LOW` | Power mode: `LOW` or `NORMAL` |
 
 
 3.5 Enable Low-Power Mode — `POWER_MODE,LOW`
@@ -123,7 +123,6 @@ The displayed power mode is updated from device responses rather than being base
 - The dashboard logs device responses, but the current ASCII command protocol does not implement transaction IDs or full request-response correlation.
 - The serial bridge keeps the physical serial port open while the dashboard disconnects and reconnects.
 - Dashboard reconnection has been exercised successfully while the bridge and USB connection remain active.
-- Automatic recovery after physical USB disconnection, bridge failure, or board reset is not implemented as a verified capability. These scenarios require separate testing and recovery logic.
 
 6. RTOS and Resource Considerations
 
@@ -137,7 +136,6 @@ Potential areas for future evaluation include:
 - Keeping command processing independent of telemetry transmission.
 - Diagnostic counters for malformed input and dropped telemetry.
 
-Concurrency guarantees and resource limits should be claimed only when verified against the firmware implementation and test results.
 
 7. Future Enhancements
 
@@ -164,4 +162,4 @@ Potential enhancements include:
 
 7.3 Physical USB Reconnection Recovery
 
-Automatic recovery following physical USB disconnection has not been verified as an implemented capability. Future work may include detecting serial-device removal, retrying the connection when the device returns, and handling firmware resets and lost runtime configuration. These items are future enhancements, not current capabilities.
+Automatic recovery following physical USB disconnection has not been verified as an implemented capability. Future work may include detecting serial-device removal, retrying the connection when the device returns, and handling firmware resets and lost runtime configuration.

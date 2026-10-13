@@ -33,13 +33,13 @@ Software
 
 4. Hardware Wiring
 
-Orient the TMP36 with its flat face toward you and its legs pointing downward.
+Orient the TMP36 sensor with its flat face toward you and its legs pointing downward.
 
-| TMP36 pin       | Mega 2560 connection |
-
-| Left            | 5V |
-| Middle          | A0 |
-| Right           | GND |
+| TMP36 Pin | Mega 2560 Connection |
+|---|---|
+| Left | 5V |
+| Middle | A0 |
+| Right | GND |
 
 The TMP36 temperature sensor is connected to the ELEGOO Mega 2560 as shown below.
 
@@ -120,15 +120,15 @@ The receiver connects to the bridge at `127.0.0.1:8765`. The bridge accepts one 
 
 Enter commands in the dashboard and press Enter.
 
-| Command                   | Purpose |
-
-| `RATE,<milliseconds>`     | Set the normal-mode sampling interval; supported range: 100–5000 ms |
-| `POWER_MODE,LOW`          | Enable low-power behavior with an effective sampling interval of 5000 ms |
-| `POWER_MODE,NORMAL`       | Restore normal-mode sampling behavior |
-| `STREAM,0`                | Disable telemetry streaming |
-| `STREAM,1`                | Enable telemetry streaming |
-| `STATUS`                  | Report the configured sampling interval, streaming state, and power mode |
-| `POWER_STATUS`            | Report the current power mode |
+| Command | Purpose |
+|---|---|
+| `RATE,<milliseconds>` | Set the normal-mode sampling interval. Supported range: 100–5000 ms. |
+| `POWER_MODE,LOW` | Enable low-power behavior with an effective sampling interval of 5000 ms. |
+| `POWER_MODE,NORMAL` | Restore normal-mode sampling behavior. |
+| `STREAM,0` | Disable telemetry streaming. |
+| `STREAM,1` | Enable telemetry streaming. |
+| `STATUS` | Report the configured sampling interval, streaming state, and power mode. |
+| `POWER_STATUS` | Report the current power mode. |
 
 The configured normal-mode sampling interval and the effective low-power interval are distinct. Consult [docs/commands.md](docs/commands.md) for the command details and response formats.
 
