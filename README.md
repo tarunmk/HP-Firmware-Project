@@ -52,17 +52,23 @@ The firmware converts the ADC reading into degrees Celsius using the TMP36's nom
 
 - Clone the repository and enter its directory:
 
-git clone <repository-url>
+```
+git clone https://github.com/tarunmk/HP-Firmware-Project.git
 cd HP-Firmware-Project
+```
 
 - Create and activate a virtual environment:
 
+```
 python3 -m venv .venv
 source .venv/bin/activate
+```
 
 - Install the pinned dependencies:
 
+```
 python -m pip install -r requirements.txt
+```
 
 6. Build and Upload Firmware
 
@@ -72,33 +78,41 @@ For the tested setup, the board platform is `arduino:avr`, and the installed Fre
 
 - From the repository root, compile the telemetry firmware:
 
+```
 arduino-cli compile \
   --fqbn arduino:avr:mega \
   firmware/sensor_telemetry
+```
 
 - Upload it after identifying the serial port for your board:
 
+```
 arduino-cli board list
 arduino-cli upload \
   --fqbn arduino:avr:mega \
   --port <SERIAL_PORT> \
   firmware/sensor_telemetry
+```
 
-Replace `<SERIAL_PORT>` with the actual port reported on your computer. Port names differ across operating systems and hardware.
+Replace `<SERIAL_PORT>` with the actual port reported on your computer.
 
 7. Run the Host Application
 
 - Start the serial bridge in the first terminal:
 
+```
 source .venv/bin/activate
 python host/serial_bridge.py --port <SERIAL_PORT> --baud 115200
+```
 
 Replace `<SERIAL_PORT>` with your board's serial port. Keep the bridge running while using the dashboard.
 
 - In a second terminal, from the repository root, activate the environment and start the dashboard:
 
+```
 source .venv/bin/activate
 python host/telemetry_receiver.py
+```
 
 The receiver connects to the bridge at `127.0.0.1:8765`. The bridge accepts one active dashboard client at a time and rejects additional simultaneous clients.
 
@@ -134,7 +148,9 @@ The log is generated locally and is excluded from version control.
 
 - From the repository root, activate the Python virtual environment and run:
 
+```
 python -m pytest -q
+```
 
 The current test suite contains 57 passing tests covering telemetry frame validation and decoding, stream parsing and recovery, power-state handling, CSV logging, and serial bridge startup error handling.
 
