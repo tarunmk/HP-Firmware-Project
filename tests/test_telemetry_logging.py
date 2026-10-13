@@ -1,4 +1,3 @@
-
 import csv
 
 from host.telemetry_receiver import (
@@ -13,6 +12,7 @@ def read_csv(path):
         return list(csv.reader(file))
 
 
+# Tests that a new telemetry log is created with the correct CSV header.
 def test_new_log_creates_correct_header(tmp_path):
     path = tmp_path / "telemetry_log.csv"
 
@@ -22,6 +22,7 @@ def test_new_log_creates_correct_header(tmp_path):
     assert read_csv(path) == [CSV_HEADER]
 
 
+# Tests that reopening an existing log appends rows without duplicating the header.
 def test_existing_log_does_not_duplicate_header(tmp_path):
     path = tmp_path / "telemetry_log.csv"
 
@@ -47,6 +48,7 @@ def test_existing_log_does_not_duplicate_header(tmp_path):
     assert rows[2][1:] == ["2", "200", "24.00", "CRC OK"]
 
 
+# Tests that an existing empty log file receives the correct CSV header.
 def test_empty_log_gets_header(tmp_path):
     path = tmp_path / "telemetry_log.csv"
     path.touch()
@@ -57,6 +59,7 @@ def test_empty_log_gets_header(tmp_path):
     assert read_csv(path) == [CSV_HEADER]
 
 
+# Tests that telemetry data is flushed to disk and readable before the file is closed.
 def test_write_telemetry_row_flushes_data(tmp_path):
     path = tmp_path / "telemetry_log.csv"
 

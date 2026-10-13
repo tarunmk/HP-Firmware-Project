@@ -4,17 +4,26 @@
 #include <string.h>
 #include <stdlib.h>
 
+// Hardware and sampling configuration.
 static constexpr uint8_t LED_PIN = LED_BUILTIN;
 static constexpr uint16_t DEFAULT_SAMPLE_PERIOD_MS = 1000;
 static constexpr uint16_t MIN_SAMPLE_PERIOD_MS = 100;
 static constexpr uint16_t MAX_SAMPLE_PERIOD_MS = 5000;
+
+// LOW mode uses a fixed, slower sampling interval. This changes the
+// sampling behavior but does not guarantee a measured power reduction.
 static constexpr uint16_t LOW_POWER_SAMPLE_PERIOD_MS = 5000;
+
 static constexpr uint8_t COMMAND_BUFFER_SIZE = 32;
 static constexpr uint8_t TMP36_PIN = A0;
+
+// TMP36 conversion assumes a 5 V ADC reference and a sensor output
+// of 500 mV at 0 °C, increasing by 10 mV per degree Celsius.
 static constexpr float ADC_REFERENCE_VOLTAGE = 5.0f;
 static constexpr float TMP36_OFFSET_VOLTAGE = 0.500f;
 static constexpr float TMP36_VOLTS_PER_C = 0.010f;
 
+// Holds the most recently sampled temperature and its device timestamp.
 struct SensorReading
 {
     uint32_t timestamp_ms;
@@ -22,17 +31,20 @@ struct SensorReading
 };
 
 static SensorReading latestReading = {0, 0.0f};
+
+// Reused transmit buffer avoids allocating memory for every telemetry frame.
 static uint8_t telemetryFrame[TelemetryProtocol::MAX_FRAME_SIZE];
 static uint16_t telemetrySequence = 0;
 
-// User-configured normal-mode sampling interval.
+// The configured period is retained when switching between NORMAL and LOW.
 static uint16_t samplePeriodMs = DEFAULT_SAMPLE_PERIOD_MS;
-
 static bool streamingEnabled = true;
 static bool lowPowerMode = false;
 
 static float readTemperatureC()
 {
+    // Convert the 10-bit ADC reading to voltage, then apply the TMP36
+    // offset and scale to obtain temperature in degrees Celsius.
     const int rawAdc = analogRead(TMP36_PIN);
 
     const float voltage =
@@ -44,6 +56,7 @@ static float readTemperatureC()
 
 static uint16_t getEffectiveSamplePeriodMs()
 {
+    // LOW mode overrides the configured interval without changing it.
     return lowPowerMode
         ? LOW_POWER_SAMPLE_PERIOD_MS
         : samplePeriodMs;
@@ -51,6 +64,8 @@ static uint16_t getEffectiveSamplePeriodMs()
 
 static void processCommand(char *command)
 {
+    // RATE accepts an integer interval in milliseconds within the
+    // supported range. Reject missing, malformed, or out-of-range values.
     if (strncmp(command, "RATE,", 5) == 0)
     {
         char *end = nullptr;
@@ -79,6 +94,8 @@ static void processCommand(char *command)
     }
     else if (strcmp(command, "STREAM,0") == 0)
     {
+        // Sampling continues while streaming is disabled; only telemetry
+        // transmission is suppressed.
         streamingEnabled = false;
         Serial.println("OK,STREAM,0");
     }
@@ -89,6 +106,9 @@ static void processCommand(char *command)
     }
     else if (strcmp(command, "STATUS") == 0)
     {
+        // Report the configured interval, streaming state, and power mode.
+        // The effective interval in LOW mode is reported separately by
+        // POWER_STATUS handling on the host, where supported.
         Serial.print("STATUS,");
         Serial.print(samplePeriodMs);
         Serial.print(",");
@@ -103,13 +123,17 @@ static void processCommand(char *command)
     }
     else if (command[0] != '\0')
     {
+        // Ignore empty commands, but report non-empty unrecognized input.
         Serial.println("ERR,UNKNOWN_COMMAND");
     }
 }
 
-
 static void processSerialCommands()
 {
+    // Keep parser state between task iterations so commands can arrive
+    // in multiple serial reads. Overlong commands are discarded through
+    // the next newline to prevent their remainder being treated as a
+    // separate command.
     static char commandBuffer[COMMAND_BUFFER_SIZE];
     static uint8_t commandLength = 0;
     static bool discardingOverlongCommand = false;
@@ -118,6 +142,7 @@ static void processSerialCommands()
     {
         char incoming = static_cast<char>(Serial.read());
 
+        // Accept CRLF and LF line endings.
         if (incoming == '\r')
         {
             continue;
@@ -133,6 +158,7 @@ static void processSerialCommands()
                 continue;
             }
 
+            // Null-terminate the command before comparing its contents.
             commandBuffer[commandLength] = '\0';
             processCommand(commandBuffer);
             commandLength = 0;
@@ -144,13 +170,13 @@ static void processSerialCommands()
             continue;
         }
 
+        // Reserve one byte for the terminating null character.
         if (commandLength < COMMAND_BUFFER_SIZE - 1)
         {
             commandBuffer[commandLength++] = incoming;
         }
         else
         {
-            // Discard the entire oversized command through its newline.
             commandLength = 0;
             discardingOverlongCommand = true;
         }
@@ -159,21 +185,26 @@ static void processSerialCommands()
 
 static void sensorTask(void *pvParameters)
 {
+    // This task does not use a task parameter.
     (void)pvParameters;
 
     pinMode(LED_PIN, OUTPUT);
 
+    // Use RTOS ticks for elapsed-time scheduling rather than blocking
+    // for the full sampling interval, so serial commands remain responsive.
     TickType_t lastSampleTick = xTaskGetTickCount();
 
     for (;;)
     {
-        // Keep command processing responsive in both power modes.
+        // Process pending commands frequently, including while telemetry
+        // streaming is disabled.
         processSerialCommands();
 
         TickType_t now = xTaskGetTickCount();
         TickType_t periodTicks =
             pdMS_TO_TICKS(getEffectiveSamplePeriodMs());
 
+        // Ensure a nonzero interval even if the RTOS tick rate is low.
         if (periodTicks == 0)
         {
             periodTicks = 1;
@@ -182,6 +213,7 @@ static void sensorTask(void *pvParameters)
         if (static_cast<TickType_t>(now - lastSampleTick) >=
             periodTicks)
         {
+            // Schedule the next interval from the current tick.
             lastSampleTick = now;
 
             latestReading.timestamp_ms =
@@ -191,6 +223,9 @@ static void sensorTask(void *pvParameters)
 
             if (streamingEnabled)
             {
+                // Encode the sequence number, device timestamp, and
+                // temperature into the protocol-defined binary frame,
+                // including its synchronization fields and CRC.
                 const bool encoded =
                     TelemetryProtocol::encodeTelemetry(
                         telemetryFrame,
@@ -202,21 +237,27 @@ static void sensorTask(void *pvParameters)
 
                 if (encoded)
                 {
+                    // Write the encoded frame as binary bytes. Do not use
+                    // Serial.print(), which would convert data to text.
                     Serial.write(
                         telemetryFrame,
                         sizeof(telemetryFrame));
 
+                    // Advance only after successful frame encoding.
+                    // The uint16_t sequence wraps naturally at its limit.
                     ++telemetrySequence;
                 }
             }
 
-            // Avoid unnecessary LED switching in low-power mode.
+            // Blink the built-in LED during NORMAL mode as a simple
+            // activity indicator. LOW mode suppresses this LED activity.
             if (!lowPowerMode)
             {
                 digitalWrite(LED_PIN, !digitalRead(LED_PIN));
             }
         }
 
+        // Yield the CPU to other RTOS tasks and check commands again soon.
         vTaskDelay(pdMS_TO_TICKS(10));
     }
 }
@@ -225,6 +266,8 @@ void setup()
 {
     Serial.begin(115200);
 
+    // Create the sensor/telemetry task. A failed task creation is treated
+    // as a configuration failure rather than silently running without it.
     const BaseType_t result = xTaskCreate(
         sensorTask,
         "Sensor",
@@ -238,4 +281,5 @@ void setup()
 
 void loop()
 {
+    // Application work is performed by sensorTask under FreeRTOS.
 }

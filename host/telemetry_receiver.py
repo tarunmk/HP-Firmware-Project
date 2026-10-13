@@ -7,19 +7,27 @@ import termios
 import time
 import tty
 import math
+
 from collections import deque
 from datetime import datetime, timezone
 from pathlib import Path
+
 from rich import box
 from rich.console import Console
 from rich.live import Live
 from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
+
+
 try:
     from host.stream_parser import StreamParser
 except ModuleNotFoundError:
     from stream_parser import StreamParser
+
+# Constants shared with the firmware telemetry protocol.
+# The host expects a fixed 20-byte frame with a 12-byte payload.
+
 FRAME_HEADER = bytes([0xAA, 0x55])
 FRAME_SIZE = 20
 MESSAGE_TYPE_TELEMETRY = 0x01
@@ -30,7 +38,10 @@ LOG_FILE = Path(__file__).with_name("telemetry_log.csv")
 VISIBLE_TELEMETRY_ROWS = 8
 VISIBLE_EVENT_ROWS = 5
 console = Console()
+
+
 def calculate_crc16(data):
+    """Calculate CRC-16/CCITT-FALSE over the supplied bytes."""
     crc = CRC_INITIAL_VALUE
     for byte in data:
         crc ^= byte << 8
@@ -40,7 +51,10 @@ def calculate_crc16(data):
             else:
                 crc = (crc << 1) & 0xFFFF
     return crc
+
+
 def validate_frame(frame):
+    """Validate frame structure, CRC, and decoded temperature sanity."""
     if len(frame) != FRAME_SIZE:
         return False, "Incorrect frame size"
     if frame[:2] != FRAME_HEADER:
@@ -49,6 +63,8 @@ def validate_frame(frame):
         return False, f"Unknown message type: 0x{frame[2]:02X}"
     if frame[3] != PAYLOAD_SIZE:
         return False, f"Unexpected payload size: {frame[3]}"
+    # The CRC covers message type through the end of the payload; the
+    # synchronization bytes and the CRC field itself are excluded.
     expected_crc = calculate_crc16(frame[2:18])
     received_crc = int.from_bytes(frame[18:20], "little")
     if expected_crc != received_crc:
@@ -60,11 +76,15 @@ def validate_frame(frame):
     if not math.isfinite(temperature_c):
         return False, "Invalid temperature: value must be finite"
     return True, "CRC OK"
+
+
 def decode_frame(frame):
+    """Decode fields from a frame that has already passed validation."""
     sequence = int.from_bytes(frame[4:6], "little")
     timestamp_ms = int.from_bytes(frame[6:14], "little")
     temperature_c = struct.unpack("<f", frame[14:18])[0]
     return sequence, timestamp_ms, temperature_c
+
 
 def visible_slice(items, offset, count):
     """Return a page of items, with offset=0 showing the newest items."""
@@ -72,8 +92,10 @@ def visible_slice(items, offset, count):
     start = max(0, end - count)
     return items[start:end]
 
+
 def update_power_status(state, response):
     """Update dashboard state only from valid device responses."""
+    # Preserve the previous mode so the dashboard can record actual changes.
     previous_mode = state["power_mode"]
     parts = response.split(",")
     new_mode = None
@@ -108,6 +130,7 @@ def update_power_status(state, response):
         new_mode = mode
     else:
         return
+    # LOW mode overrides the configured rate; NORMAL uses the configured rate.
     state["power_mode"] = new_mode
     state["effective_sample_period"] = (
         5000 if new_mode == "LOW" else state["sample_rate"]
@@ -122,8 +145,7 @@ def update_power_status(state, response):
             state["last_power_mode_change"] = (
                 f"{previous_mode} → {new_mode} at {now}"
             )
-
-
+# Keep the CSV schema stable for inspection and downstream analysis.
 CSV_HEADER = [
     "host_time_utc",
     "sequence",
@@ -136,14 +158,11 @@ CSV_HEADER = [
 def open_telemetry_log(log_file=LOG_FILE):
     """Open the CSV log in append mode and initialize its header if needed."""
     log_exists = log_file.exists() and log_file.stat().st_size > 0
-
     file = log_file.open("a", newline="", encoding="utf-8")
     writer = csv.writer(file)
-
     if not log_exists:
         writer.writerow(CSV_HEADER)
         file.flush()
-
     return file, writer
 
 
@@ -157,6 +176,7 @@ def write_telemetry_row(
     crc_status,
 ):
     """Append one decoded telemetry record and flush it to disk."""
+    # Write one decoded sample per row; flush so recent readings reach disk.
     writer.writerow([
         host_time,
         sequence,
@@ -168,6 +188,7 @@ def write_telemetry_row(
 
 
 def build_dashboard(state, command_text):
+    """Build the Rich dashboard from the latest receiver state."""
     layout = Table.grid(expand=True)
     layout.add_column(ratio=1)
     title = Text(
@@ -183,6 +204,7 @@ def build_dashboard(state, command_text):
     layout.add_row(
         Panel(title, subtitle=connection_status, border_style="cyan")
     )
+    # Summary metrics show the latest valid sample and current device settings.
     metrics = Table(box=box.ROUNDED, expand=True)
     metrics.add_column("TEMPERATURE", justify="center")
     metrics.add_column("SAMPLE INTERVAL (ms)", justify="center")
@@ -215,7 +237,7 @@ def build_dashboard(state, command_text):
         crc_text,
     )
     layout.add_row(metrics)
-    # Power-management status
+    # Show the reported mode and the most recent mode transition/confirmation.
     power_table = Table(box=box.ROUNDED, expand=True)
     power_table.add_column("POWER MODE", justify="center")
     power_table.add_column("LAST MODE CHANGE", justify="center")
@@ -233,6 +255,7 @@ def build_dashboard(state, command_text):
     layout.add_row(
         Panel(power_table, title="POWER MANAGEMENT", border_style="green")
     )
+    # History is paginated so older samples can be reviewed while reception continues.
     history = Table(
         title="LIVE TELEMETRY",
         box=box.SIMPLE,
@@ -268,6 +291,8 @@ def build_dashboard(state, command_text):
     layout.add_row(
         Panel(history, border_style=telemetry_border)
     )
+    # Device replies, parser errors, and host command activity are shown separately
+    # from decoded telemetry records.
     events_table = Table(
         title="DEVICE / COMMAND EVENTS",
         box=box.SIMPLE,
@@ -312,20 +337,27 @@ def build_dashboard(state, command_text):
         )
     )
     return layout
+
+
 def open_serial_without_reset(port):
+    """Attempt to set serial control lines before opening the specified port."""
     connection = serial.Serial(
         port=None,
         baudrate=115200,
         timeout=0,
         dsrdtr=False,
     )
-    # Set control-line states before opening the port.
+    # Set control-line states before opening the port. This cannot guarantee that
+    # every USB-to-serial interface will avoid resetting the board.
     connection.dtr = False
     connection.rts = False
     connection.port = port
     connection.open()
     return connection
+
+
 def main():
+    """Run the dashboard client and process telemetry, commands, and input."""
     # The serial bridge owns the physical Mega connection.
     # The receiver connects to the bridge over TCP.
     parser = StreamParser(
@@ -333,7 +365,9 @@ def main():
         frame_size=FRAME_SIZE,
         validator=validate_frame,
     )
+    # Keep editable command text separate from the device event history.
     command_text = ""
+    # Centralized UI state is updated by device responses and validated frames.
     state = {
         "connected": False,
         "temperature": None,
@@ -352,13 +386,13 @@ def main():
     }
     old_terminal_settings = None
     try:
+        # Connect to the bridge rather than reopening the physical serial port.
         with socket.create_connection(
             ("127.0.0.1", 8765),
             timeout=3,
         ) as connection:
             connection.settimeout(0.1)
             state["connected"] = True
-
             file, writer = open_telemetry_log()
             with file:
                 console.print(
@@ -366,7 +400,8 @@ def main():
                 )
                 console.print(f"Logging telemetry to: {LOG_FILE}")
                 console.print("Click the terminal, then type commands.")
-
+                # Save terminal settings and use character-at-a-time input so the
+                # dashboard can refresh while the user types.
                 terminal_fd = sys.stdin.fileno()
                 old_terminal_settings = termios.tcgetattr(terminal_fd)
                 tty.setcbreak(terminal_fd)
@@ -379,6 +414,7 @@ def main():
                 ) as live:
                     last_refresh = 0.0
                     running = True
+                    # Query current device configuration when the dashboard starts.
                     connection.sendall(b"STATUS\n")
                     connection.sendall(b"POWER_STATUS\n")
                     while running:
@@ -395,6 +431,8 @@ def main():
                             state["events"].append("Connection lost: serial bridge disconnected")
                             break
                         if data:
+                            # TCP reads may split or combine messages arbitrarily;
+                            # StreamParser reconstructs complete lines and binary frames.
                             for event in parser.feed(data):
                                 if event.kind == "text":
                                     response = str(event.data).strip()
@@ -413,10 +451,10 @@ def main():
                                         f"INVALID: {event.data}"
                                     )
                                 elif event.kind == "frame":
+                                    # Decode and log frames only after the stream parser
+                                    # has identified a complete candidate frame.
                                     frame = bytes(event.data)
                                     valid, message = validate_frame(frame)
-                                    # Keep a defensive check at the
-                                    # application boundary.
                                     if not valid:
                                         state["events"].append(
                                             f"INVALID: {message}"
@@ -437,7 +475,21 @@ def main():
                                         temperature_c,
                                         message,
                                     )
-                        # Read keyboard input without blocking serial reception.
+                                    # Update displayed metrics only after validation,
+                                    # decoding, and logging have succeeded.
+                                    state["temperature"] = temperature_c
+                                    state["sequence"] = sequence
+                                    state["crc_ok"] = True
+                                    state["history"].append(
+                                        (
+                                            datetime.now(timezone.utc).strftime("%H:%M:%S"),
+                                            str(sequence),
+                                            f"{timestamp_ms} ms",
+                                            f"{temperature_c:.2f} °C",
+                                            "OK",
+                                        )
+                                    )
+                        # Poll keyboard input without blocking socket reception.
                         readable, _, _ = select.select(
                             [sys.stdin], [], [], 0
                         )
@@ -448,6 +500,7 @@ def main():
                                     state["selected_panel"] = "events"
                                 else:
                                     state["selected_panel"] = "telemetry"
+                            # Navigation changes the visible history offset, not the log.
                             elif key == "\x10":  # Ctrl+P: older entries
                                 if state["selected_panel"] == "telemetry":
                                     state["telemetry_offset"] = min(
@@ -483,6 +536,7 @@ def main():
                                     state["telemetry_offset"] = 0
                                 else:
                                     state["events_offset"] = 0
+                            # Submit the completed command when Enter is pressed.
                             elif key in ("\r", "\n"):
                                 command = command_text.strip()
                                 command_text = ""
@@ -510,6 +564,8 @@ def main():
                                 running = False
                             elif key.isprintable():
                                 command_text += key
+                        # Refresh at a bounded cadence instead of rebuilding the UI
+                        # for every received byte or keyboard event.
                         now = time.monotonic()
                         if now - last_refresh >= 0.1:
                             live.update(
@@ -523,6 +579,7 @@ def main():
     except KeyboardInterrupt:
         pass
     finally:
+        # Restore terminal settings even if the receiver exits after an error.
         if old_terminal_settings is not None:
             termios.tcsetattr(
                 sys.stdin.fileno(),
@@ -530,5 +587,7 @@ def main():
                 old_terminal_settings,
             )
         console.print("\n[dim]Host receiver stopped.[/dim]")
+
+
 if __name__ == "__main__":
     main()

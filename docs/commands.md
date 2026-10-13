@@ -4,9 +4,8 @@ Command Protocol
 
 This document describes the command interface between the Python host dashboard and the Arduino Mega firmware.
 
-The current implementation uses newline-delimited ASCII commands and text responses. Telemetry is transmitted separately as binary frames, with frame validation and CRC-16 checking performed by the Python host.
+The implementation uses newline-delimited ASCII commands and text responses. Telemetry is transmitted separately as binary frames, with frame validation and CRC-16 checking performed by the Python host.
 
-Note: Transaction IDs and a binary command/response protocol are not currently implemented. These remain potential future enhancements.
 
 2. Communication
 
@@ -22,7 +21,7 @@ Command responses and binary telemetry share the same physical serial connection
 
 3.1 Set Sampling Rate — `RATE,<milliseconds>`
 
-Example:
+- Example:
 
 RATE,1000
 
@@ -32,7 +31,7 @@ Configures the normal-mode sampling interval.
 - The configured normal sampling interval is retained when switching between NORMAL and LOW power modes during the same firmware runtime.
 - LOW mode uses an effective sampling interval of 5000 milliseconds.
 
-The command changes the runtime configuration. Persistence across a firmware reset or power cycle is not guaranteed.
+The command changes the runtime configuration.
 
 3.2 Start Streaming — `STREAM,1`
 
@@ -46,7 +45,7 @@ Disables telemetry transmission while keeping command processing active.
 
 Requests the current device status.
 
-Example response:
+- Example response:
 
 STATUS,1000,1,LOW
 
@@ -59,7 +58,6 @@ The response fields are:
 | `1`                 | Streaming state: `0` stopped, `1` enabled |
 | `LOW`               | Power mode: `LOW` or `NORMAL` |
 
-The values above are an illustrative example; actual values depend on the device's current configuration.
 
 3.5 Enable Low-Power Mode — `POWER_MODE,LOW`
 
@@ -72,17 +70,15 @@ Current behavior:
 - Suppresses normal LED toggling.
 - Keeps command processing active.
 
-Expected acknowledgement:
+- Expected acknowledgement:
 
 OK,POWER_MODE,LOW
-
-This mode changes firmware behavior but does not implement a hardware sleep state. No measured electrical power reduction is claimed.
 
 3.6 Enable Normal Mode — `POWER_MODE,NORMAL`
 
 Restores normal-mode sampling behavior using the configured normal sampling interval.
 
-Expected acknowledgement:
+- Expected acknowledgement:
 
 OK,POWER_MODE,NORMAL
 
@@ -90,7 +86,7 @@ OK,POWER_MODE,NORMAL
 
 Requests the current power mode.
 
-Example response:
+- Example response:
 
 POWER_STATUS,LOW
 
@@ -117,8 +113,6 @@ The dashboard displays:
 - Last confirmed mode transition.
 
 The displayed power mode is updated from device responses rather than being based solely on the command entered by the user.
-
-The implementation does not currently provide a hardware sleep state or measured power-saving percentage. A reduction in sampling frequency must not be interpreted as an equivalent reduction in electrical power.
 
 5. Error Handling and Reliability
 
@@ -170,6 +164,4 @@ Potential enhancements include:
 
 7.3 Physical USB Reconnection Recovery
 
-Automatic recovery following physical USB disconnection has not been verified as an implemented capability. Future work may include detecting serial-device removal, retrying the connection when the device returns, and handling firmware resets and lost runtime configuration.
-
-These items are future enhancements, not current capabilities.
+Automatic recovery following physical USB disconnection has not been verified as an implemented capability. Future work may include detecting serial-device removal, retrying the connection when the device returns, and handling firmware resets and lost runtime configuration. These items are future enhancements, not current capabilities.

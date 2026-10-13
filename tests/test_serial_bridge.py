@@ -6,6 +6,7 @@ import serial
 from host import serial_bridge
 
 
+# Tests that the bridge exits cleanly when the serial port cannot be opened.
 def test_serial_open_failure_exits_cleanly(monkeypatch, capsys):
     def fail_to_open_serial(*args, **kwargs):
         raise serial.SerialException("Simulated serial port failure")
@@ -31,6 +32,7 @@ def test_serial_open_failure_exits_cleanly(monkeypatch, capsys):
     assert "Serial bridge stopped." in output
 
 
+# Tests that the bridge rejects execution when the required port argument is missing.
 def test_missing_port_argument_is_rejected(monkeypatch):
     monkeypatch.setattr(
         sys,

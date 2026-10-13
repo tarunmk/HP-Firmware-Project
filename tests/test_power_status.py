@@ -13,6 +13,7 @@ def make_state():
     }
 
 
+# Tests that NORMAL mode reports the configured sampling interval correctly.
 def test_status_normal_sets_confirmed_sample_interval():
     state = make_state()
 
@@ -25,6 +26,7 @@ def test_status_normal_sets_confirmed_sample_interval():
     assert state["last_power_mode_change"] != "Not yet confirmed"
 
 
+# Tests that LOW mode uses a 5000 ms effective sampling interval.
 def test_status_low_uses_5000_ms_effective_interval():
     state = make_state()
 
@@ -36,6 +38,7 @@ def test_status_low_uses_5000_ms_effective_interval():
     assert state["effective_sample_period"] == 5000
 
 
+# Tests that switching to LOW mode preserves the configured sample rate.
 def test_power_status_low_preserves_configured_sample_rate():
     state = make_state()
     state["power_mode"] = "NORMAL"
@@ -49,6 +52,7 @@ def test_power_status_low_preserves_configured_sample_rate():
     assert state["effective_sample_period"] == 5000
 
 
+# Tests that switching back to NORMAL restores the configured interval.
 def test_switching_back_to_normal_restores_configured_interval():
     state = make_state()
     state["power_mode"] = "LOW"
@@ -61,6 +65,7 @@ def test_switching_back_to_normal_restores_configured_interval():
     assert state["effective_sample_period"] == 750
 
 
+# Tests that power-mode acknowledgments update the effective sampling interval.
 def test_power_mode_acknowledgment_updates_effective_interval():
     state = make_state()
     state["sample_rate"] = 1200
@@ -76,6 +81,7 @@ def test_power_mode_acknowledgment_updates_effective_interval():
     assert state["effective_sample_period"] == 1200
 
 
+# Tests that invalid or unsupported responses leave the state unchanged.
 @pytest.mark.parametrize(
     "response",
     [
@@ -100,6 +106,7 @@ def test_invalid_responses_do_not_change_state(response):
     assert state == before
 
 
+# Tests that the minimum and maximum supported sample rates are accepted.
 @pytest.mark.parametrize("sample_rate", [100, 5000])
 def test_status_accepts_sample_rate_boundaries(sample_rate):
     state = make_state()
@@ -112,6 +119,7 @@ def test_status_accepts_sample_rate_boundaries(sample_rate):
     assert state["effective_sample_period"] == sample_rate
 
 
+# Tests that streaming can be disabled without changing the sample interval.
 def test_status_records_streaming_disabled():
     state = make_state()
 
